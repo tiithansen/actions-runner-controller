@@ -40,6 +40,10 @@ spec:
             spec:
               description: AutoscalingListenerSpec defines the desired state of AutoscalingListener
               properties:
+                autoscalingRunnerSetLabels:
+                  items:
+                    type: string
+                  type: array
                 autoscalingRunnerSetName:
                   description: Required
                   type: string

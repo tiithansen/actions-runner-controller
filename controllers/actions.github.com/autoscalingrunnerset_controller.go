@@ -339,17 +339,26 @@ func (r *AutoscalingRunnerSetReconciler) createRunnerScaleSet(ctx context.Contex
 	}
 
 	if runnerScaleSet == nil {
+		var labels = []actions.Label{
+			{
+				Name: autoscalingRunnerSet.Spec.RunnerScaleSetName,
+				Type: "System",
+			},
+		}
+
+		for _, label := range autoscalingRunnerSet.Spec.RunnerScaleSetLabels {
+			labels = append(labels, actions.Label{
+				Name: label,
+				Type: "System",
+			})
+		}
+
 		runnerScaleSet, err = actionsClient.CreateRunnerScaleSet(
 			ctx,
 			&actions.RunnerScaleSet{
 				Name:          autoscalingRunnerSet.Spec.RunnerScaleSetName,
 				RunnerGroupId: runnerGroupId,
-				Labels: []actions.Label{
-					{
-						Name: autoscalingRunnerSet.Spec.RunnerScaleSetName,
-						Type: "System",
-					},
-				},
+				Labels:        labels,
 				RunnerSetting: actions.RunnerSetting{
 					Ephemeral:     true,
 					DisableUpdate: true,

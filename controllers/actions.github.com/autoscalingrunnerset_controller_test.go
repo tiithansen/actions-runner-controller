@@ -67,11 +67,12 @@ var _ = Describe("Test AutoScalingRunnerSet controller", func() {
 				Namespace: autoscalingNS.Name,
 			},
 			Spec: v1alpha1.AutoscalingRunnerSetSpec{
-				GitHubConfigUrl:    "https://github.com/owner/repo",
-				GitHubConfigSecret: configSecret.Name,
-				MaxRunners:         &max,
-				MinRunners:         &min,
-				RunnerGroup:        "testgroup",
+				GitHubConfigUrl:      "https://github.com/owner/repo",
+				GitHubConfigSecret:   configSecret.Name,
+				MaxRunners:           &max,
+				MinRunners:           &min,
+				RunnerGroup:          "testgroup",
+				RunnerScaleSetLabels: []string{"self-hosted"},
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{

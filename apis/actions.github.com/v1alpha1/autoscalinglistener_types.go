@@ -38,6 +38,9 @@ type AutoscalingListenerSpec struct {
 	// Required
 	AutoscalingRunnerSetName string `json:"autoscalingRunnerSetName,omitempty"`
 
+	// +optional
+	AutoscalingRunnerSetLabels []string `json:"autoscalingRunnerSetLabels,omitempty"`
+
 	// Required
 	EphemeralRunnerSetName string `json:"ephemeralRunnerSetName,omitempty"`
 
