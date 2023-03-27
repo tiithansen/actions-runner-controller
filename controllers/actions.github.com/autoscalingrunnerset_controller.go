@@ -344,9 +344,18 @@ func (r *AutoscalingRunnerSetReconciler) createRunnerScaleSet(ctx context.Contex
 				Name: autoscalingRunnerSet.Spec.RunnerScaleSetName,
 				Type: "System",
 			},
+			{
+				Name: "self-hosted",
+				Type: "System",
+			},
+			{
+				Name: "amd64",
+				Type: "arch",
+			},
 		}
 
 		for _, label := range autoscalingRunnerSet.Spec.RunnerScaleSetLabels {
+			logger.Info("Adding extra label", "label", label)
 			labels = append(labels, actions.Label{
 				Name: label,
 				Type: "System",
