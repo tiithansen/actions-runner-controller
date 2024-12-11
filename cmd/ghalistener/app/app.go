@@ -62,13 +62,14 @@ func New(config config.Config) (*App, error) {
 
 	if config.MetricsAddr != "" {
 		app.metrics = metrics.NewExporter(metrics.ExporterConfig{
-			ScaleSetName:      config.EphemeralRunnerSetName,
-			ScaleSetNamespace: config.EphemeralRunnerSetNamespace,
-			Enterprise:        ghConfig.Enterprise,
-			Organization:      ghConfig.Organization,
-			Repository:        ghConfig.Repository,
-			ServerAddr:        config.MetricsAddr,
-			ServerEndpoint:    config.MetricsEndpoint,
+			ScaleSetName:       config.EphemeralRunnerSetName,
+			ScaleSetNamespace:  config.EphemeralRunnerSetNamespace,
+			RunnerScaleSetName: config.RunnerScaleSetName,
+			Enterprise:         ghConfig.Enterprise,
+			Organization:       ghConfig.Organization,
+			Repository:         ghConfig.Repository,
+			ServerAddr:         config.MetricsAddr,
+			ServerEndpoint:     config.MetricsEndpoint,
 		})
 	}
 

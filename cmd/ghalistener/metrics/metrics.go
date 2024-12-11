@@ -3,7 +3,6 @@ package metrics
 import (
 	"context"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/actions/actions-runner-controller/github/actions"
@@ -19,11 +18,9 @@ const (
 	labelKeyOrganization            = "organization"
 	labelKeyRepository              = "repository"
 	labelKeyJobName                 = "job_name"
-	labelKeyJobWorkflowRef          = "job_workflow_ref"
 	labelKeyEventName               = "event_name"
 	labelKeyJobResult               = "job_result"
-	labelKeyRunnerID                = "runner_id"
-	labelKeyRunnerName              = "runner_name"
+	labelKeyRunnerPodName           = "pod_name"
 )
 
 const githubScaleSetSubsystem = "gha"
@@ -43,17 +40,26 @@ var (
 		labelKeyOrganization,
 		labelKeyEnterprise,
 		labelKeyJobName,
-		labelKeyJobWorkflowRef,
 		labelKeyEventName,
 	}
 
-	completedJobsTotalLabels   = append(jobLabels, labelKeyJobResult, labelKeyRunnerID, labelKeyRunnerName)
-	jobExecutionDurationLabels = append(jobLabels, labelKeyJobResult, labelKeyRunnerID, labelKeyRunnerName)
-	startedJobsTotalLabels     = append(jobLabels, labelKeyRunnerID, labelKeyRunnerName)
-	jobStartupDurationLabels   = append(jobLabels, labelKeyRunnerID, labelKeyRunnerName)
+	completedJobsTotalLabels   = append(jobLabels, labelKeyJobResult)
+	jobExecutionDurationLabels = append(jobLabels, labelKeyJobResult)
+	startedJobsTotalLabels     = jobLabels
+	jobStartupDurationLabels   = jobLabels
+	runnerLabels               = append(jobLabels, labelKeyRunnerPodName)
 )
 
 var (
+	runnerJob = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: githubScaleSetSubsystem,
+			Name:      "runner_job",
+			Help:      "Job information for the runner.",
+		},
+		runnerLabels,
+	)
+
 	assignedJobs = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: githubScaleSetSubsystem,
@@ -214,27 +220,27 @@ var runtimeBuckets []float64 = []float64{
 }
 
 type baseLabels struct {
-	scaleSetName      string
-	scaleSetNamespace string
-	enterprise        string
-	organization      string
-	repository        string
+	scaleSetName       string
+	scaleSetNamespace  string
+	runnerScaleSetName string
+	enterprise         string
+	organization       string
+	repository         string
 }
 
 func (b *baseLabels) jobLabels(jobBase *actions.JobMessageBase) prometheus.Labels {
 	return prometheus.Labels{
-		labelKeyEnterprise:     b.enterprise,
-		labelKeyOrganization:   jobBase.OwnerName,
-		labelKeyRepository:     jobBase.RepositoryName,
-		labelKeyJobName:        jobBase.JobDisplayName,
-		labelKeyJobWorkflowRef: jobBase.JobWorkflowRef,
-		labelKeyEventName:      jobBase.EventName,
+		labelKeyEnterprise:   b.enterprise,
+		labelKeyOrganization: jobBase.OwnerName,
+		labelKeyRepository:   jobBase.RepositoryName,
+		labelKeyJobName:      jobBase.JobDisplayName,
+		labelKeyEventName:    jobBase.EventName,
 	}
 }
 
 func (b *baseLabels) scaleSetLabels() prometheus.Labels {
 	return prometheus.Labels{
-		labelKeyRunnerScaleSetName:      b.scaleSetName,
+		labelKeyRunnerScaleSetName:      b.runnerScaleSetName,
 		labelKeyRunnerScaleSetNamespace: b.scaleSetNamespace,
 		labelKeyEnterprise:              b.enterprise,
 		labelKeyOrganization:            b.organization,
@@ -244,16 +250,22 @@ func (b *baseLabels) scaleSetLabels() prometheus.Labels {
 
 func (b *baseLabels) completedJobLabels(msg *actions.JobCompleted) prometheus.Labels {
 	l := b.jobLabels(&msg.JobMessageBase)
-	l[labelKeyRunnerID] = strconv.Itoa(msg.RunnerId)
 	l[labelKeyJobResult] = msg.Result
-	l[labelKeyRunnerName] = msg.RunnerName
 	return l
 }
 
 func (b *baseLabels) startedJobLabels(msg *actions.JobStarted) prometheus.Labels {
 	l := b.jobLabels(&msg.JobMessageBase)
-	l[labelKeyRunnerID] = strconv.Itoa(msg.RunnerId)
-	l[labelKeyRunnerName] = msg.RunnerName
+	return l
+}
+
+func (b *baseLabels) runnerLabels(jobLabels prometheus.Labels, runnerName string) prometheus.Labels {
+	l := prometheus.Labels{
+		labelKeyRunnerPodName: runnerName,
+	}
+	for k, v := range jobLabels {
+		l[k] = v
+	}
 	return l
 }
 
@@ -286,14 +298,15 @@ type exporter struct {
 }
 
 type ExporterConfig struct {
-	ScaleSetName      string
-	ScaleSetNamespace string
-	Enterprise        string
-	Organization      string
-	Repository        string
-	ServerAddr        string
-	ServerEndpoint    string
-	Logger            logr.Logger
+	ScaleSetName       string
+	ScaleSetNamespace  string
+	RunnerScaleSetName string
+	Enterprise         string
+	Organization       string
+	Repository         string
+	ServerAddr         string
+	ServerEndpoint     string
+	Logger             logr.Logger
 }
 
 func NewExporter(config ExporterConfig) ServerPublisher {
@@ -322,11 +335,12 @@ func NewExporter(config ExporterConfig) ServerPublisher {
 	return &exporter{
 		logger: config.Logger.WithName("metrics"),
 		baseLabels: baseLabels{
-			scaleSetName:      config.ScaleSetName,
-			scaleSetNamespace: config.ScaleSetNamespace,
-			enterprise:        config.Enterprise,
-			organization:      config.Organization,
-			repository:        config.Repository,
+			scaleSetName:       config.ScaleSetName,
+			scaleSetNamespace:  config.ScaleSetNamespace,
+			runnerScaleSetName: config.RunnerScaleSetName,
+			enterprise:         config.Enterprise,
+			organization:       config.Organization,
+			repository:         config.Repository,
 		},
 		srv: &http.Server{
 			Addr:    config.ServerAddr,
@@ -369,6 +383,9 @@ func (e *exporter) PublishJobStarted(msg *actions.JobStarted) {
 
 	startupDuration := msg.JobMessageBase.RunnerAssignTime.Unix() - msg.JobMessageBase.ScaleSetAssignTime.Unix()
 	jobStartupDurationSeconds.With(l).Observe(float64(startupDuration))
+
+	rl := e.runnerLabels(l, msg.RunnerName)
+	runnerJob.With(rl).Set(1)
 }
 
 func (e *exporter) PublishJobCompleted(msg *actions.JobCompleted) {
@@ -377,6 +394,9 @@ func (e *exporter) PublishJobCompleted(msg *actions.JobCompleted) {
 
 	executionDuration := msg.JobMessageBase.FinishTime.Unix() - msg.JobMessageBase.RunnerAssignTime.Unix()
 	jobExecutionDurationSeconds.With(l).Observe(float64(executionDuration))
+
+	rl := e.runnerLabels(l, msg.RunnerName)
+	runnerJob.Delete(rl)
 }
 
 func (m *exporter) PublishDesiredRunners(count int) {
