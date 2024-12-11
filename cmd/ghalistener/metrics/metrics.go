@@ -29,13 +29,15 @@ const githubScaleSetSubsystem = "gha"
 var (
 	scaleSetLabels = []string{
 		labelKeyRunnerScaleSetName,
+		labelKeyRunnerScaleSetNamespace,
 		labelKeyRepository,
 		labelKeyOrganization,
 		labelKeyEnterprise,
-		labelKeyRunnerScaleSetNamespace,
 	}
 
 	jobLabels = []string{
+		labelKeyRunnerScaleSetName,
+		labelKeyRunnerScaleSetNamespace,
 		labelKeyRepository,
 		labelKeyOrganization,
 		labelKeyEnterprise,
@@ -150,74 +152,24 @@ var (
 		completedJobsTotalLabels,
 	)
 
-	jobStartupDurationSeconds = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
+	jobLastStartupDurationSeconds = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
 			Subsystem: githubScaleSetSubsystem,
-			Name:      "job_startup_duration_seconds",
-			Help:      "Time spent waiting for workflow job to get started on the runner owned by the scale set (in seconds).",
-			Buckets:   runtimeBuckets,
+			Name:      "job_last_startup_duration_seconds",
+			Help:      "Last duration spent waiting for workflow job to get started on the runner owned by the scale set (in seconds).",
 		},
 		jobStartupDurationLabels,
 	)
 
-	jobExecutionDurationSeconds = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
+	jobLastExecutionDurationSeconds = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
 			Subsystem: githubScaleSetSubsystem,
-			Name:      "job_execution_duration_seconds",
-			Help:      "Time spent executing workflow jobs by the scale set (in seconds).",
-			Buckets:   runtimeBuckets,
+			Name:      "job_last_execution_duration_seconds",
+			Help:      "Last duration spent executing workflow jobs by the scale set (in seconds).",
 		},
 		jobExecutionDurationLabels,
 	)
 )
-
-var runtimeBuckets []float64 = []float64{
-	0.01,
-	0.05,
-	0.1,
-	0.5,
-	1,
-	2,
-	3,
-	4,
-	5,
-	6,
-	7,
-	8,
-	9,
-	10,
-	12,
-	15,
-	18,
-	20,
-	25,
-	30,
-	40,
-	50,
-	60,
-	70,
-	80,
-	90,
-	100,
-	110,
-	120,
-	150,
-	180,
-	210,
-	240,
-	300,
-	360,
-	420,
-	480,
-	540,
-	600,
-	900,
-	1200,
-	1800,
-	2400,
-	3000,
-	3600,
-}
 
 type baseLabels struct {
 	scaleSetName       string
@@ -230,11 +182,13 @@ type baseLabels struct {
 
 func (b *baseLabels) jobLabels(jobBase *actions.JobMessageBase) prometheus.Labels {
 	return prometheus.Labels{
-		labelKeyEnterprise:   b.enterprise,
-		labelKeyOrganization: jobBase.OwnerName,
-		labelKeyRepository:   jobBase.RepositoryName,
-		labelKeyJobName:      jobBase.JobDisplayName,
-		labelKeyEventName:    jobBase.EventName,
+		labelKeyRunnerScaleSetName:      b.runnerScaleSetName,
+		labelKeyRunnerScaleSetNamespace: b.scaleSetNamespace,
+		labelKeyEnterprise:              b.enterprise,
+		labelKeyOrganization:            jobBase.OwnerName,
+		labelKeyRepository:              jobBase.RepositoryName,
+		labelKeyJobName:                 jobBase.JobDisplayName,
+		labelKeyEventName:               jobBase.EventName,
 	}
 }
 
@@ -322,8 +276,8 @@ func NewExporter(config ExporterConfig) ServerPublisher {
 		idleRunners,
 		startedJobsTotal,
 		completedJobsTotal,
-		jobStartupDurationSeconds,
-		jobExecutionDurationSeconds,
+		jobLastStartupDurationSeconds,
+		jobLastExecutionDurationSeconds,
 		runnerJob,
 	)
 
@@ -383,7 +337,7 @@ func (e *exporter) PublishJobStarted(msg *actions.JobStarted) {
 	startedJobsTotal.With(l).Inc()
 
 	startupDuration := msg.JobMessageBase.RunnerAssignTime.Unix() - msg.JobMessageBase.ScaleSetAssignTime.Unix()
-	jobStartupDurationSeconds.With(l).Observe(float64(startupDuration))
+	jobLastStartupDurationSeconds.With(l).Set(float64(startupDuration))
 
 	rl := e.runnerLabels(l, msg.RunnerName)
 	runnerJob.With(rl).Set(1)
@@ -394,7 +348,7 @@ func (e *exporter) PublishJobCompleted(msg *actions.JobCompleted) {
 	completedJobsTotal.With(l).Inc()
 
 	executionDuration := msg.JobMessageBase.FinishTime.Unix() - msg.JobMessageBase.RunnerAssignTime.Unix()
-	jobExecutionDurationSeconds.With(l).Observe(float64(executionDuration))
+	jobLastExecutionDurationSeconds.With(l).Set(float64(executionDuration))
 
 	rl := e.runnerLabels(l, msg.RunnerName)
 	runnerJob.Delete(rl)
