@@ -49,6 +49,7 @@ var (
 	jobExecutionDurationLabels = append(jobLabels, labelKeyJobResult)
 	startedJobsTotalLabels     = jobLabels
 	jobStartupDurationLabels   = jobLabels
+	jobQueueDurationLabels     = jobLabels
 	runnerLabels               = append(jobLabels, labelKeyRunnerPodName)
 )
 
@@ -152,6 +153,15 @@ var (
 		completedJobsTotalLabels,
 	)
 
+	jobLastQueueDurationSeconds = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: githubScaleSetSubsystem,
+			Name:      "job_last_queue_duration_seconds",
+			Help:      "Last duration spent in the queue by the job (in seconds).",
+		},
+		jobQueueDurationLabels,
+	)
+
 	jobLastStartupDurationSeconds = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: githubScaleSetSubsystem,
@@ -213,13 +223,9 @@ func (b *baseLabels) startedJobLabels(msg *actions.JobStarted) prometheus.Labels
 	return l
 }
 
-func (b *baseLabels) runnerLabels(jobLabels prometheus.Labels, runnerName string) prometheus.Labels {
-	l := prometheus.Labels{
-		labelKeyRunnerPodName: runnerName,
-	}
-	for k, v := range jobLabels {
-		l[k] = v
-	}
+func (b *baseLabels) runnerLabels(msg *actions.JobMessageBase, runnerName string) prometheus.Labels {
+	l := b.jobLabels(msg)
+	l[labelKeyRunnerPodName] = runnerName
 	return l
 }
 
@@ -339,7 +345,10 @@ func (e *exporter) PublishJobStarted(msg *actions.JobStarted) {
 	startupDuration := msg.JobMessageBase.RunnerAssignTime.Unix() - msg.JobMessageBase.ScaleSetAssignTime.Unix()
 	jobLastStartupDurationSeconds.With(l).Set(float64(startupDuration))
 
-	rl := e.runnerLabels(l, msg.RunnerName)
+	queueDuration := msg.JobMessageBase.RunnerAssignTime.Unix() - msg.JobMessageBase.QueueTime.Unix()
+	jobLastQueueDurationSeconds.With(l).Set(float64(queueDuration))
+
+	rl := e.runnerLabels(&msg.JobMessageBase, msg.RunnerName)
 	runnerJob.With(rl).Set(1)
 }
 
@@ -347,10 +356,13 @@ func (e *exporter) PublishJobCompleted(msg *actions.JobCompleted) {
 	l := e.completedJobLabels(msg)
 	completedJobsTotal.With(l).Inc()
 
-	executionDuration := msg.JobMessageBase.FinishTime.Unix() - msg.JobMessageBase.RunnerAssignTime.Unix()
-	jobLastExecutionDurationSeconds.With(l).Set(float64(executionDuration))
+	// only record execution duration if the job has been assigned to a runner
+	if !msg.JobMessageBase.FinishTime.IsZero() && !msg.JobMessageBase.RunnerAssignTime.IsZero() {
+		executionDuration := msg.JobMessageBase.FinishTime.Unix() - msg.JobMessageBase.RunnerAssignTime.Unix()
+		jobLastExecutionDurationSeconds.With(l).Set(float64(executionDuration))
+	}
 
-	rl := e.runnerLabels(l, msg.RunnerName)
+	rl := e.runnerLabels(&msg.JobMessageBase, msg.RunnerName)
 	runnerJob.Delete(rl)
 }
 
