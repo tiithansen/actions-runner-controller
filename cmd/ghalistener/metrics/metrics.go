@@ -282,6 +282,7 @@ func NewExporter(config ExporterConfig) ServerPublisher {
 		idleRunners,
 		startedJobsTotal,
 		completedJobsTotal,
+		jobLastQueueDurationSeconds,
 		jobLastStartupDurationSeconds,
 		jobLastExecutionDurationSeconds,
 		runnerJob,
@@ -342,11 +343,15 @@ func (e *exporter) PublishJobStarted(msg *actions.JobStarted) {
 	l := e.startedJobLabels(msg)
 	startedJobsTotal.With(l).Inc()
 
-	startupDuration := msg.JobMessageBase.RunnerAssignTime.Unix() - msg.JobMessageBase.ScaleSetAssignTime.Unix()
-	jobLastStartupDurationSeconds.With(l).Set(float64(startupDuration))
+	if !msg.JobMessageBase.RunnerAssignTime.IsZero() && !msg.JobMessageBase.ScaleSetAssignTime.IsZero() {
+		startupDuration := msg.JobMessageBase.RunnerAssignTime.Unix() - msg.JobMessageBase.ScaleSetAssignTime.Unix()
+		jobLastStartupDurationSeconds.With(l).Set(float64(startupDuration))
+	}
 
-	queueDuration := msg.JobMessageBase.RunnerAssignTime.Unix() - msg.JobMessageBase.QueueTime.Unix()
-	jobLastQueueDurationSeconds.With(l).Set(float64(queueDuration))
+	if !msg.JobMessageBase.QueueTime.IsZero() && !msg.JobMessageBase.RunnerAssignTime.IsZero() {
+		queueDuration := msg.JobMessageBase.RunnerAssignTime.Unix() - msg.JobMessageBase.QueueTime.Unix()
+		jobLastQueueDurationSeconds.With(l).Set(float64(queueDuration))
+	}
 
 	rl := e.runnerLabels(&msg.JobMessageBase, msg.RunnerName)
 	runnerJob.With(rl).Set(1)
